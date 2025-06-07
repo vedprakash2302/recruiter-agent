@@ -1,205 +1,193 @@
-# Human-in-the-Loop Agent with LangGraph
+# AI Recruiter Agent
 
-This project demonstrates how to create a human-in-the-loop agent using LangGraph, translating the functionality from the agno library example to use LangGraph's latest `interrupt` and `Command` patterns.
+An intelligent recruiter agent system that combines email automation with resume processing capabilities. The application features a Python FastAPI backend for email operations and AI-powered workflows, paired with a Next.js frontend for user interaction.
 
 ## Features
 
-- **Human-in-the-Loop Interaction**: User approval required before tool execution
-- **Retry Logic**: Maximum of 3 retries with user control
-- **Rich Console Output**: Beautiful terminal interface with emojis and colors
-- **Tool Execution**: Three fun tools (facts, quotes, jokes) with pre-execution approval
-- **State Management**: Persistent state across interruptions using LangGraph checkpointing
+- **Email Automation**: AI-powered email drafting and enhancement using LangGraph workflows
+- **Gmail Integration**: Full Gmail API integration for sending and managing emails
+- **Resume Processing**: Upload and analyze resumes against job descriptions
+- **Human-in-the-Loop**: Interactive approval system for email content before sending
+- **Modern UI**: Next.js frontend with Tailwind CSS for a clean, responsive interface
 
-## Setup
+## Project Structure
 
-1. **Install Dependencies**:
+```
+recruiter-agent/
+├── main.py              # LangGraph email workflow system
+├── server.py            # FastAPI server with Gmail & resume processing
+├── gmail_tools.py       # Gmail API integration utilities
+├── frontend/            # Next.js frontend application
+│   ├── package.json
+│   └── src/
+├── api/                 # API services
+├── db/                  # Database schema and setup
+├── resumes/             # Resume upload directory
+└── templates/           # HTML templates
+```
 
+## Prerequisites
+
+- Python 3.12+
+- Node.js 18+
+- npm or yarn
+- Gmail API credentials (for email functionality)
+
+## Setup Instructions
+
+### 1. Backend Setup (Required First)
+
+1. **Install Python Dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
 
 2. **Environment Variables**:
-   Create a `.env` file with your OpenAI API key:
-   ```
+   Create a `.env` file in the root directory:
+   ```env
    OPENAI_API_KEY=your_openai_api_key_here
+   GROQ_API_KEY=your_groq_api_key_here
+   # Add Gmail API credentials as needed
    ```
 
-## Key Translation from Agno to LangGraph
+3. **Gmail API Setup** (if using email features):
+   - Set up Gmail API credentials in Google Cloud Console
+   - Download credentials file and configure as per `gmail_tools.py`
 
-### Original Agno Concepts → LangGraph Equivalents
+### 2. Frontend Setup
 
-| Agno Concept             | LangGraph Equivalent            | Description                              |
-| ------------------------ | ------------------------------- | ---------------------------------------- |
-| `pre_hook`               | `human_approval_node`           | Function that runs before tool execution |
-| `RetryAgentRun`          | `Command(goto="retry_or_stop")` | Retry mechanism using routing            |
-| `StopAgentRun`           | `Command(goto="retry_or_stop")` | Stop execution using routing             |
-| `agent.print_response()` | `agent_graph.stream()`          | Streaming execution with interrupts      |
-| Agent state              | `AgentState(MessagesState)`     | Extended state with retry counters       |
+1. **Navigate to Frontend Directory**:
+   ```bash
+   cd frontend
+   ```
 
-### Architecture Overview
+2. **Install Node.js Dependencies**:
+   ```bash
+   npm install
+   ```
 
-```mermaid
-graph TD
-    A[Start] --> B[Agent Node]
-    B --> C{Has Tool Calls?}
-    C -->|Yes| D[Human Approval Node]
-    C -->|No| E[End]
-    D --> F{User Choice?}
-    F -->|Continue| G[Execute Tool]
-    F -->|Retry| H[Retry/Stop Node]
-    F -->|Cancel| H
-    G --> E
-    H --> B
+## Running the Application
+
+**IMPORTANT**: The backend must be started before the frontend for the application to work properly.
+
+### Step 1: Start the Backend Server
+
+Choose one of the following backend servers:
+
+**Option A: FastAPI Server (Recommended for full features)**
+```bash
+python server.py
 ```
+The server will start on `http://localhost:8000`
 
-## Key Components
-
-### 1. State Management
-
-```python
-class AgentState(MessagesState):
-    retry_count: int = 0
-    tool_to_execute: str = ""
-    tool_args: Dict[str, Any] = {}
-    user_choice: str = ""
-```
-
-### 2. Human Approval with Interrupt
-
-```python
-def human_approval_node(state: AgentState) -> Command:
-    choice = interrupt({
-        "question": "🤔 Do you want to continue?",
-        "tool_name": tool_call['name'],
-        "tool_args": tool_call['args'],
-        "options": ["y", "n", "retry"],
-        "default": "y"
-    })
-    # Handle user choice and route accordingly
-```
-
-### 3. Tool Execution
-
-The agent includes three demonstration tools:
-
-- `get_fact(fact: str)` - Returns interesting facts
-- `get_quote(quote: str)` - Returns motivational quotes
-- `get_joke(joke: str)` - Returns jokes
-
-## Usage
-
-Run the agent:
-
+**Option B: LangGraph Workflow (for email workflow testing)**
 ```bash
 python main.py
 ```
 
-### Interactive Flow
+### Step 2: Start the Frontend Development Server
 
-1. **Agent Decision**: The agent decides which tool to use based on your input
-2. **Human Approval**: You're prompted to approve, retry, or cancel the tool execution
-3. **Tool Execution**: If approved, the tool runs and returns formatted output
-4. **Retry Logic**: Can retry up to 3 times if something goes wrong
+In a new terminal window:
 
-### Example Interaction
-
-```
-🚀 Starting Human-in-the-Loop Agent
-User input: Share something fun!
-
-🤖 Agent wants to use tool: get_fact
-
-🔍 Preparing to run: get_fact
-📦 Arguments: {'fact': 'Did you know that octopuses have three hearts?'}
-
-🤔 Do you want to continue?
-Options: ['y', 'n', 'retry']
-Your choice [y]: y
-
-🤖 Agent: Here's an interesting fact: Did you know that octopuses have three hearts?
+```bash
+cd frontend
+npm run dev
 ```
 
-## Key Differences from Original Agno Code
+The frontend will start on `http://localhost:3000`
 
-### 1. **Graph-Based Architecture**
+### Accessing the Application
 
-- LangGraph uses a state graph with defined nodes and edges
-- Flow control through conditional routing instead of exceptions
+1. **Frontend Interface**: Navigate to `http://localhost:3000`
+2. **Backend API**: Access API documentation at `http://localhost:8000/docs`
+3. **Health Check**: Verify backend status at `http://localhost:8000/health`
 
-### 2. **Interrupt-Based Human Interaction**
+## API Endpoints
 
-- Uses LangGraph's `interrupt()` function instead of synchronous prompts
-- Supports resumption with `Command(resume=value)`
+The FastAPI backend provides the following key endpoints:
 
-### 3. **Persistent State**
+- `GET /` - Main application interface
+- `GET /auth/status` - Gmail authentication status
+- `POST /send-email/` - Send emails via Gmail
+- `POST /search-emails/` - Search Gmail messages
+- `POST /api/process-resume` - Process resume against job description
+- `GET /api/resumes` - List uploaded resumes
 
-- Built-in checkpointing with `MemorySaver`
-- State persists across interruptions and can be resumed later
+## Usage
 
-### 4. **Message-Based Communication**
+### Email Workflow
 
-- Uses LangChain's message format (`HumanMessage`, `AIMessage`)
-- Integrates with LangChain's tool calling system
+1. **LangGraph Workflow** (`main.py`):
+   - Interactive email drafting and enhancement
+   - Human-in-the-loop approval system
+   - AI-powered content generation with Groq
 
-## Advanced Features
+2. **API-based Email** (via frontend):
+   - Gmail integration for sending emails
+   - Email management and search capabilities
 
-### Custom Retry Logic
+### Resume Processing
 
-The retry mechanism tracks attempts and provides clear feedback:
+1. Upload resume files to the `resumes/` directory
+2. Use the frontend interface to process resumes against job descriptions
+3. Get AI-powered analysis and recommendations
 
-```python
-if current_retry >= MAX_RETRIES:
-    console.print("❌ Maximum retries reached.")
-    return Command(goto="retry_or_stop", update={"user_choice": "max_retries"})
-```
+## Development
 
-### Rich Console Integration
+### Backend Development
 
-- Colorized output with emojis
-- Progress indicators for retries
-- Clear formatting for tool information
+- **FastAPI Server**: Modify `server.py` for API endpoints
+- **Email Workflows**: Update `main.py` for LangGraph workflows
+- **Gmail Integration**: Configure `gmail_tools.py` for email operations
 
-### Error Handling
+### Frontend Development
 
-- Graceful keyboard interrupt handling
-- Exception catching with user feedback
-- Safe state management
+- **Next.js App**: Frontend code in `frontend/src/`
+- **Components**: React components for UI elements
+- **API Integration**: Services for backend communication
 
-## Production Considerations
+### Adding New Features
 
-1. **Checkpointer**: Replace `MemorySaver` with a persistent storage solution (PostgreSQL, Redis, etc.)
-2. **Authentication**: Add user authentication for multi-user scenarios
-3. **Tool Security**: Implement proper validation for tool inputs
-4. **Logging**: Add comprehensive logging for audit trails
-5. **Async Operations**: Consider async variants for better performance
+1. **Backend**: Add new endpoints in `server.py`
+2. **Frontend**: Create new pages/components in `frontend/src/`
+3. **Workflows**: Extend LangGraph workflows in `main.py`
 
-## Extending the Agent
+## Authentication
 
-### Adding New Tools
+The application supports Gmail OAuth2 authentication:
 
-```python
-@tool
-def your_custom_tool(parameter: str) -> str:
-    """Your custom tool description"""
-    # Tool implementation
-    return result
+1. Visit the application root to check authentication status
+2. Follow the OAuth2 flow if not authenticated
+3. Permissions include email sending and reading capabilities
 
-# Add to tools list
-tools = [get_fact, get_quote, get_joke, your_custom_tool]
-```
+## Troubleshooting
 
-### Custom Approval Logic
+### Common Issues
 
-Modify the `human_approval_node` to implement custom approval workflows, integration with external systems, or different UI patterns.
+1. **Frontend API Errors**: Ensure the backend server is running first
+2. **Gmail Authentication**: Check API credentials and OAuth2 setup
+3. **Resume Upload**: Verify the `resumes/` directory exists and has write permissions
+
+### Port Conflicts
+
+- Backend: Default port 8000 (configurable in `server.py`)
+- Frontend: Default port 3000 (configurable in `frontend/package.json`)
 
 ## Dependencies
 
-- **langgraph**: State graph framework with human-in-the-loop support
-- **langchain-core**: Core LangChain functionality
-- **langchain-openai**: OpenAI integration
-- **python-dotenv**: Environment variable management
-- **rich**: Beautiful terminal output
+### Backend
+- **FastAPI**: Web framework for the API
+- **LangChain & LangGraph**: AI workflow orchestration
+- **Groq**: AI model integration
+- **Gmail API**: Email operations
+- **Uvicorn**: ASGI server
+
+### Frontend
+- **Next.js**: React framework
+- **React**: UI library
+- **Tailwind CSS**: Styling framework
+- **Axios**: HTTP client for API calls
 
 ## License
 
-This project demonstrates the translation from agno library patterns to LangGraph and is provided for educational purposes.
+This project is provided for educational and development purposes.
