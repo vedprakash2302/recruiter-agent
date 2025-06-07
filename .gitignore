@@ -149,4 +149,4 @@ langchain.db
 # API keys and secrets
 *.key
 secrets.json
-.rooroo/
+.rooroo/*
