@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 
 # Import the Gmail tools we created earlier
 from gmail_tools import GmailService, SCOPES
-from tools.extract_tools import get_job_content
+from tools.extract_tools import get_job_content,process_resume_pdf
+from globalc import global_lock, JOB_DETAILS, CV_DETAILS
 
 load_dotenv()
 
@@ -303,7 +304,13 @@ async def upload_file(
             detail="Only PDF files are allowed"
         )
     
-    job = get_job_content(link)
+    get_job_content(link)
+    process_resume_pdf(file.filename)
+    with global_lock:
+        job_details = JOB_DETAILS
+        print(job_details)
+        cv_details = CV_DETAILS
+        print(cv_details)
     # Here you would typically save the file to disk or process it
     # For now, we'll just return the file info and link
 
