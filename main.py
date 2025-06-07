@@ -7,8 +7,9 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
-from rich.console import Console  
+from rich.console import Console
 from rich.prompt import Prompt
+from db_tools import query_database, get_database_schema
 
 load_dotenv()
 console = Console()
@@ -46,7 +47,7 @@ model = ChatOpenAI(
 )
 
 # Define the tools list for the model
-tools = [get_fact, get_quote, get_joke]
+tools = [get_fact, get_quote, get_joke, query_database, get_database_schema]
 model_with_tools = model.bind_tools(tools)
 
 # Agent node - makes the decision about what to do
@@ -167,6 +168,12 @@ def execute_tool_node(state: AgentState) -> Dict[str, Any]:
     elif tool_name == "get_joke":
         result = get_joke.invoke(tool_args)
         response = f"Here's a joke: {result}"
+    elif tool_name == "query_database":
+        result = query_database.invoke(tool_args)
+        response = f"Database query result:\n{result}"
+    elif tool_name == "get_database_schema":
+        result = get_database_schema.invoke(tool_args)
+        response = f"Database schema:\n{result}"
     else:
         response = "I don't have any tools to use."
     
