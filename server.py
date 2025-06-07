@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
 import os
+import webbrowser
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -18,7 +19,7 @@ load_dotenv()
 # Initialize FastAPI app
 app = FastAPI(
     title="Recruiter Agent API",
-    description="API for handling recruiter agent operations",
+    description="API for handling recruiter agent operations with Gmail integration",
     version="1.0.0"
 )
 
@@ -31,13 +32,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize FastAPI app and Gmail service
-app = FastAPI(
-    title="Recruiter Agent API",
-    description="API for handling recruiter agent operations with Gmail integration",
-    version="1.0.0"
-)
-
 # Initialize Gmail service
 gmail_service = GmailService()
 
@@ -47,6 +41,39 @@ templates = Jinja2Templates(directory="templates")
 # Mount static files
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Startup event to check authentication and prompt OAuth if needed
+@app.on_event("startup")
+async def startup_event():
+    """Check authentication on startup and prompt OAuth if needed."""
+    try:
+        if not gmail_service.is_authenticated():
+            print("\n🔐 Gmail authentication required!")
+            print("Opening browser for OAuth authentication...")
+            print("\n⚠️  IMPORTANT: If you see 'Access blocked' error:")
+            print("   1. Go to Google Cloud Console (https://console.cloud.google.com)")
+            print("   2. Navigate to APIs & Services > OAuth consent screen")
+            print("   3. Add your email as a test user in the 'Test users' section")
+            print("   4. OR publish the app (make it external)")
+            print("   5. Try authentication again")
+            print("\n🔧 Alternatively, you can:")
+            print("   - Use a Google Workspace account (if available)")
+            print("   - Contact the app developer to add you as a test user")
+            
+            auth_url = gmail_service.get_auth_url()
+            webbrowser.open(auth_url)
+            print(f"\n🌐 OAuth URL: {auth_url}")
+            print("📧 After authentication, return to this terminal.")
+        else:
+            print("✅ Gmail authentication already configured!")
+    except Exception as e:
+        print(f"⚠️ OAuth setup error: {e}")
+        print("Please ensure credentials.json is properly configured.")
+        print("\n🔧 Google Cloud Console setup required:")
+        print("   1. Enable Gmail API")
+        print("   2. Create OAuth 2.0 credentials")
+        print("   3. Configure OAuth consent screen")
+        print("   4. Add test users or publish the app")
 
 # Request/Response Models
 class EmailRequest(BaseModel):
@@ -75,18 +102,36 @@ class AuthStatus(BaseModel):
     authenticated: bool
     auth_url: Optional[str] = None
 
-# Root endpoint - redirects to auth status
+# Root endpoint - automatically redirects to OAuth if not authenticated
 @app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    """Root endpoint that shows authentication status and provides login link if needed."""
+async def root(request: Request, auth_complete: bool = Query(False)):
+    """Root endpoint that automatically prompts for Gmail OAuth if not authenticated."""
     is_authenticated = gmail_service.is_authenticated()
-    auth_url = None
     
+    # If not authenticated and this isn't a post-auth callback, redirect to OAuth
+    if not is_authenticated and not auth_complete:
+        try:
+            auth_url = gmail_service.get_auth_url()
+            return RedirectResponse(url=auth_url, status_code=302)
+        except Exception as e:
+            # If we can't get auth URL, show error page with manual link
+            return templates.TemplateResponse(
+                "index.html",
+                {
+                    "request": request,
+                    "authenticated": False,
+                    "auth_url": None,
+                    "error": f"OAuth setup error: {str(e)}. Please ensure credentials.json is properly configured."
+                }
+            )
+    
+    # Show the template (either authenticated or post-auth)
+    auth_url = None
     if not is_authenticated:
         try:
             auth_url = gmail_service.get_auth_url()
         except Exception as e:
-            return f"Error getting auth URL: {str(e)}"
+            pass
     
     return templates.TemplateResponse(
         "index.html",
@@ -117,7 +162,8 @@ async def oauth2_callback(code: str = Query(...)):
     """Handle OAuth2 callback from Google."""
     try:
         gmail_service.fetch_token(code)
-        return RedirectResponse(url="/")
+        # Redirect back to root with auth_complete flag to prevent redirect loop
+        return RedirectResponse(url="/?auth_complete=true")
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
