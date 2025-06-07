@@ -26,18 +26,139 @@ def get_resume_content(pdf_path):
     print("Resume loaded successfully")
     return data
 
-def get_job_content(job_url: str) -> str:
-    """Load and process job description from URL"""
+def extract_job_details(job_text: str) -> Dict[str, Any]:
+    """
+    Extract structured information from job description text using Groq LLM.
+    
+    Args:
+        job_text: Raw text extracted from the job posting
+        
+    Returns:
+        Dictionary containing structured job information
+    """
+    try:
+        # Initialize Groq LLM
+        llm = ChatGroq(
+            temperature=0,
+            model_name="meta-llama/llama-4-scout-17b-16e-instruct",
+        )
+        
+        # Define the output parser
+        parser = JsonOutputParser()
+        
+        # Define the prompt template
+        template = """
+        Extract the following information from the job description below. 
+        Return ONLY a JSON object with the following structure:
+        {{
+            "job_title": "string | null",
+            "company_name": "string | null",
+            "location": "string | null",
+            "job_type": "string | null",
+            "experience_level": "string | null",
+            "salary_range": "string | null",
+            "skills_required": ["string"],
+            "responsibilities": ["string"],
+            "qualifications": ["string"],
+            "extracted_job_description": "string"
+        }}
+        
+        Rules:
+        - Only include information that is explicitly mentioned in the job description
+        - If a field cannot be determined, set it to null or empty list
+        - extracted_job_description should be the first 1000 characters of the cleaned job text
+        - skills_required, responsibilities, and qualifications should be lists of strings
+        - Job type should be one of: Full-time, Part-time, Contract, Temporary, Internship, or null if not specified
+        - Experience level should be one of: Entry Level, Mid Level, Senior, Executive, or null if not specified
+        
+        Job Description:
+        {job_text}
+        """
+        
+        prompt = ChatPromptTemplate.from_template(template)
+        
+        # Create the chain
+        chain = prompt | llm | parser
+        
+        # Run the chain
+        result = chain.invoke({"job_text": job_text})
+        
+        # Clean and validate the result
+        cleaned_result = {
+            "job_title": result.get("job_title"),
+            "company_name": result.get("company_name"),
+            "location": result.get("location"),
+            "job_type": result.get("job_type"),
+            "experience_level": result.get("experience_level"),
+            "salary_range": result.get("salary_range"),
+            "skills_required": result.get("skills_required", []),
+            "responsibilities": result.get("responsibilities", []),
+            "qualifications": result.get("qualifications", []),
+            "extracted_job_description": job_text[:1000]  # First 1000 chars of original text
+        }
+        
+        print("\nExtracted Job Details:")
+        print("-" * 50)
+        print(f"Job Title: {cleaned_result['job_title']}")
+        print(f"Company: {cleaned_result['company_name']}")
+        print(f"Location: {cleaned_result['location']}")
+        print(f"Type: {cleaned_result['job_type']}")
+        print(f"Experience: {cleaned_result['experience_level']}")
+        print(f"Salary: {cleaned_result['salary_range']}")
+        print(f"Skills ({len(cleaned_result['skills_required'])}): {', '.join(cleaned_result['skills_required'][:3])}...")
+        print("-" * 50 + "\n")
+        
+        return cleaned_result
+        
+    except Exception as e:
+        print(f"❌ Error extracting job details: {str(e)}")
+        return {
+            "job_title": None,
+            "company_name": None,
+            "location": None,
+            "job_type": None,
+            "experience_level": None,
+            "salary_range": None,
+            "skills_required": [],
+            "responsibilities": [],
+            "qualifications": [],
+            "extracted_job_description": job_text[:1000] if job_text else ""
+        }
+
+def get_job_content(job_url: str) -> Dict[str, Any]:
+    """
+    Load and process job description from URL and extract structured information.
+    
+    Args:
+        job_url: URL of the job posting
+        
+    Returns:
+        Dictionary containing structured job information or error message
+    """
     try:
         print(f"📄 Loading job description from: {job_url}")
         loader = WebBaseLoader(job_url)
         docs = loader.load()
-        formatted_text = "".join(doc.page_content for doc in docs)
+        
+        if not docs:
+            error_msg = "❌ No content found at the provided URL"
+            print(error_msg)
+            return {"error": error_msg, "job_url": job_url}
+            
+        # Combine all pages into a single text
+        job_text = "".join(doc.page_content for doc in docs)
         print('Job description loaded successfully')
-        return formatted_text
+        
+        # Extract structured information
+        job_details = extract_job_details(job_text)
+        job_details["job_url"] = job_url
+        
+        return job_details
+        
     except Exception as e:
-        print(f"❌ Error loading job URL: {str(e)}")
-        return f"Error loading URL: {str(e)}"
+        error_msg = f"Error loading job URL: {str(e)}"
+        print(f"❌ {error_msg}")
+        return {"error": error_msg, "job_url": job_url}
 
 def extract_applicant_details(resume_text: str) -> Dict[str, Any]:
     """

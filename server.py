@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 # Import the Gmail tools we created earlier
 from gmail_tools import GmailService, SCOPES
-
+from tools.extract_tools import get_job_content
 
 load_dotenv()
 
@@ -257,6 +257,7 @@ async def upload_file(
             detail="Only PDF files are allowed"
         )
     
+    job = get_job_content(link)
     # Here you would typically save the file to disk or process it
     # For now, we'll just return the file info and link
 
