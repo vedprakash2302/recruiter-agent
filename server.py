@@ -7,27 +7,33 @@ from pydantic import BaseModel
 from typing import Optional, List
 import os
 import webbrowser
+import logging
 from datetime import datetime
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Import the Gmail tools we created earlier
 from gmail_tools import GmailService, SCOPES
-from tools.extract_tools import get_job_content,process_resume_pdf
+from tools.extract_tools import get_job_content, process_resume_pdf
 from globalc import global_lock, JOB_DETAILS, CV_DETAILS
 
 load_dotenv()
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Initialize FastAPI app
 app = FastAPI(
-    title="Recruiter Agent API",
-    description="API for handling recruiter agent operations with Gmail integration",
+    title="AI Recruiter Agent API",
+    description="API for handling recruiter agent operations with Gmail integration and resume processing",
     version="1.0.0"
 )
 
 # CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "*"],  # Include Next.js ports and wildcard for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -97,6 +103,19 @@ class FileUploadResponse(BaseModel):
     link: str
     upload_time: str
     status: str = "success"
+
+# Resume processing models
+class ResumeProcessRequest(BaseModel):
+    url: str  # Job description URL
+    filename: str  # Resume filename including extension
+
+class ProcessingResult(BaseModel):
+    success: bool
+    message: str
+    job_url: str
+    resume_filename: str
+    analysis: Optional[dict] = None
+    error: Optional[str] = None
 
 # Authentication status check
 class AuthStatus(BaseModel):
@@ -383,3 +402,157 @@ async def search_emails_by_address(
                 "email": email
             }
         )
+
+# Resume processing endpoints
+@app.post("/api/process-resume", response_model=ProcessingResult)
+async def process_resume(request: ResumeProcessRequest):
+    """
+    Process uploaded resume against job description
+    
+    This endpoint receives:
+    - url: plaintext URL of job description
+    - filename: plaintext filename including extension (e.g., my_awesome_resume.pdf)
+    
+    The file should already be uploaded to the resumes/ directory
+    """
+    try:
+        logger.info(f"Processing resume: {request.filename} for job: {request.url}")
+        
+        # Validate inputs
+        if not request.url.strip():
+            raise HTTPException(status_code=400, detail="Job URL is required")
+        
+        if not request.filename.strip():
+            raise HTTPException(status_code=400, detail="Resume filename is required")
+        
+        # Check if resume file exists
+        resumes_dir = Path("resumes")
+        resume_path = resumes_dir / request.filename
+        
+        if not resume_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Resume file not found: {request.filename}"
+            )
+        
+        # Here you would integrate with your AI processing logic
+        # For now, we'll simulate the processing
+        
+        analysis_result = await analyze_resume_against_job(
+            resume_path=str(resume_path),
+            job_url=request.url
+        )
+        
+        return ProcessingResult(
+            success=True,
+            message="Resume processed successfully",
+            job_url=request.url,
+            resume_filename=request.filename,
+            analysis=analysis_result
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing resume: {str(e)}")
+        return ProcessingResult(
+            success=False,
+            message="Processing failed",
+            job_url=request.url,
+            resume_filename=request.filename,
+            error=str(e)
+        )
+
+async def analyze_resume_against_job(resume_path: str, job_url: str) -> dict:
+    """
+    Analyze resume against job description
+    
+    This function would integrate with your AI models to:
+    1. Extract text from PDF resume
+    2. Fetch and parse job description from URL
+    3. Perform matching analysis
+    4. Generate recommendations
+    
+    For now, returning a mock analysis
+    """
+    
+    # Mock analysis - replace with actual AI processing
+    analysis = {
+        "resume_path": resume_path,
+        "job_url": job_url,
+        "match_score": 85,
+        "strengths": [
+            "Strong technical skills alignment",
+            "Relevant industry experience",
+            "Good educational background"
+        ],
+        "recommendations": [
+            "Highlight specific achievements with metrics",
+            "Emphasize remote work experience",
+            "Add relevant certifications"
+        ],
+        "missing_skills": [
+            "Cloud platforms experience",
+            "Agile methodology",
+            "Team leadership"
+        ],
+        "cover_letter_suggestions": [
+            "Mention specific interest in company mission",
+            "Reference recent company achievements",
+            "Connect personal experience to role requirements"
+        ]
+    }
+    
+    logger.info(f"Analysis completed with match score: {analysis['match_score']}%")
+    return analysis
+
+@app.get("/api/health")
+async def api_health_check():
+    """Detailed health check for API functionality"""
+    resumes_dir = Path("resumes")
+    return {
+        "status": "healthy",
+        "resumes_directory_exists": resumes_dir.exists(),
+        "resumes_directory_path": str(resumes_dir.absolute()),
+        "resume_count": len(list(resumes_dir.glob("*.pdf"))) if resumes_dir.exists() else 0,
+        "gmail_authenticated": gmail_service.is_authenticated()
+    }
+
+@app.get("/api/resumes")
+async def list_resumes():
+    """List all uploaded resumes"""
+    resumes_dir = Path("resumes")
+    
+    if not resumes_dir.exists():
+        return {"resumes": [], "count": 0}
+    
+    resumes = []
+    for resume_file in resumes_dir.glob("*.pdf"):
+        stat = resume_file.stat()
+        resumes.append({
+            "filename": resume_file.name,
+            "size": stat.st_size,
+            "created": stat.st_ctime,
+            "modified": stat.st_mtime
+        })
+    
+    return {
+        "resumes": sorted(resumes, key=lambda x: x["created"], reverse=True),
+        "count": len(resumes)
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    # Create resumes directory if it doesn't exist
+    resumes_dir = Path("resumes")
+    resumes_dir.mkdir(exist_ok=True)
+    
+    logger.info("Starting AI Recruiter Agent Server...")
+    uvicorn.run(
+        "server:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )
