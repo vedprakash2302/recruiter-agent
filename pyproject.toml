@@ -1,0 +1,12 @@
+[project]
+name = "recruiter-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.12",
+    "langchain-groq>=0.3.2",
+    "python-dotenv>=1.1.0",
+    "uvicorn>=0.34.3",
+]
