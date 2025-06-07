@@ -42,16 +42,9 @@ class Job(Base):
     __tablename__ = "jobs"
     
     job_id = Column(Integer(), primary_key=True, autoincrement=True)
-    user_id = Column(Integer(), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     job_url = Column(Text(), nullable=False)
-    company_name = Column(Text())
-    job_title = Column(Text())
-    job_location = Column(Text())
-    job_department = Column(Text())
-    creation_date = Column(DateTime(), default=func.now(), nullable=False)
     processing_status = Column(Enum(JobProcessingStatus), nullable=False, default=JobProcessingStatus.not_started)
     extracted_job_description = Column(Text())
-    updated_at = Column(DateTime(), default=func.now(), onupdate=func.now(), nullable=False)
     
     # Relationships
     user = relationship("User", back_populates="jobs")
@@ -65,17 +58,11 @@ class Applicant(Base):
     first_name = Column(String(100))
     last_name = Column(String(100))
     email = Column(String(255))
-    resume_s3_object_key = Column(Text(), nullable=False)
+    resume_filename = Column(Text(), nullable=False)
+    extracted_resume_text = Column(Text())
     job_id = Column(Integer(), ForeignKey("jobs.job_id", ondelete="CASCADE"), nullable=False)
-    overall_score = Column(Float())
-    strengths_summary = Column(JSON())  # Array of summary strings
-    weaknesses_summary = Column(JSON())  # Array of summary strings
-    strengths_detailed = Column(JSON())  # Array of objects with label and evidence
-    weaknesses_detailed = Column(JSON())  # Array of objects with label and evidence
     created_by = Column(Integer(), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     processing_status = Column(Enum(ResumeProcessingStatus), nullable=False, default=ResumeProcessingStatus.not_started)
-    created_at = Column(DateTime(), default=func.now(), nullable=False)
-    updated_at = Column(DateTime(), default=func.now(), onupdate=func.now(), nullable=False)
     
     # Relationships
     job = relationship("Job", back_populates="applicants")
@@ -94,19 +81,11 @@ class UserUpdate:
     email: Optional[str] = None
 
 class JobCreate:
-    user_id: int
     job_url: str
-    company_name: Optional[str] = None
-    job_title: Optional[str] = None
-    job_location: Optional[str] = None
-    job_department: Optional[str] = None
+    extracted_job_description: Optional[str] = None
 
 class JobUpdate:
     job_url: Optional[str] = None
-    company_name: Optional[str] = None
-    job_title: Optional[str] = None
-    job_location: Optional[str] = None
-    job_department: Optional[str] = None
     processing_status: Optional[JobProcessingStatus] = None
     extracted_job_description: Optional[str] = None
 
@@ -114,17 +93,13 @@ class ApplicantCreate:
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[str] = None
-    resume_s3_object_key: str
+    resume_filename: str
     job_id: int
-    created_by: int
+    extracted_resume_text: Optional[str] = None
 
 class ApplicantUpdate:
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[str] = None
-    overall_score: Optional[float] = None
-    strengths_summary: Optional[List[str]] = None
-    weaknesses_summary: Optional[List[str]] = None
-    strengths_detailed: Optional[List[Dict[str, str]]] = None
-    weaknesses_detailed: Optional[List[Dict[str, str]]] = None
     processing_status: Optional[ResumeProcessingStatus] = None 
+    extracted_resume_text: Optional[str] = None

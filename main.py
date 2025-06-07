@@ -6,10 +6,11 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.prompt import Prompt
-from db_tools import query_database, get_database_schema
+from tools.db_tools import get_database_schema, get_applicant_details, get_job_details
 
 load_dotenv()
 console = Console()
@@ -40,14 +41,13 @@ def get_joke(joke: str) -> str:
     return joke
 
 # Initialize the model
-model = ChatOpenAI(
-    model="gpt-4",
-    api_key=os.getenv("OPENAI_API_KEY"),
-    temperature=0.7
+model = ChatGroq(
+    model="llama3-8b-8192",
+    api_key=os.getenv("GROQ_API_KEY")
 )
 
 # Define the tools list for the model
-tools = [get_fact, get_quote, get_joke, query_database, get_database_schema]
+tools = [get_fact, get_quote, get_joke, get_database_schema, get_applicant_details, get_job_details]
 model_with_tools = model.bind_tools(tools)
 
 # Agent node - makes the decision about what to do
@@ -56,17 +56,23 @@ def agent_node(state: AgentState) -> Dict[str, Any]:
     if not state["messages"]:
         # Initial system message
         system_msg = HumanMessage(content="""
-        You are a fun and informative agent. Use the appropriate tool to share either:
-        - a fun fact
-        - a motivational quote
-        - or a joke
+        You are a helpful agent that can:
+        - Share a fun fact
+        - Share a motivational quote
+        - Share a joke
+        - Get database schema information
+        - Get detailed applicant information from the database
+        - Get detailed job information from the database
 
         When you get a response from a tool:
         1. For facts, start with "Here's an interesting fact: " followed by the tool's output
         2. For quotes, start with "Here's a motivational quote: " followed by the tool's output
         3. For jokes, start with "Here's a joke: " followed by the tool's output
+        4. For database schema, present the information clearly
+        5. For applicant details, present the information in a readable format
+        6. For job details, present the information in a readable format
 
-        Ask the user before sharing, and retry only if they say so. Stop after 3 retries.
+        Ask the user before executing any tool, and retry only if they say so. Stop after 3 retries.
         """)
         state["messages"].append(system_msg)
     
@@ -168,12 +174,15 @@ def execute_tool_node(state: AgentState) -> Dict[str, Any]:
     elif tool_name == "get_joke":
         result = get_joke.invoke(tool_args)
         response = f"Here's a joke: {result}"
-    elif tool_name == "query_database":
-        result = query_database.invoke(tool_args)
-        response = f"Database query result:\n{result}"
     elif tool_name == "get_database_schema":
         result = get_database_schema.invoke(tool_args)
         response = f"Database schema:\n{result}"
+    elif tool_name == "get_applicant_details":
+        result = get_applicant_details.invoke(tool_args)
+        response = f"Applicant information:\n{result}"
+    elif tool_name == "get_job_details":
+        result = get_job_details.invoke(tool_args)
+        response = f"Job information:\n{result}"
     else:
         response = "I don't have any tools to use."
     
@@ -192,7 +201,7 @@ def retry_or_stop_node(state: AgentState) -> Dict[str, Any]:
         return {"messages": []}
 
 # Routing function
-def should_continue(state: AgentState) -> Literal["human_approval", "execute_tool", END]:
+def should_continue(state: AgentState):
     """Determine the next step in the workflow"""
     
     if not state["messages"]:
