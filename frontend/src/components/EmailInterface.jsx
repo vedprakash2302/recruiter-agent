@@ -34,11 +34,54 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   
+  // Streaming state
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
+  const [streamingStatus, setStreamingStatus] = useState('');
+  const [useStreaming, setUseStreaming] = useState(true);
+  
   const improvementInputRef = useRef(null);
 
-  // Initialize component with provided data
+  // Initialize component with provided data or data from upload-resume page
   useEffect(() => {
-    if (initialData) {
+    // Check for data from upload-resume page first
+    const uploadedData = sessionStorage.getItem('uploadedResumeData');
+    if (uploadedData) {
+      try {
+        const parsedData = JSON.parse(uploadedData);
+        
+        // Map the comprehensive uploaded data to email form structure
+        const mappedData = {
+          to: parsedData.applicant_details?.email || '',
+          candidateInfo: {
+            name: parsedData.applicant_details ?
+              `${parsedData.applicant_details.first_name || ''} ${parsedData.applicant_details.last_name || ''}`.trim() : '',
+            currentCompany: parsedData.applicant_details?.current_company || '',
+            position: parsedData.applicant_details?.current_position || '',
+            skills: parsedData.applicant_details?.skills || [],
+            phone: parsedData.applicant_details?.phone_number || '',
+            location: parsedData.applicant_details?.location || '',
+            experience: parsedData.applicant_details?.years_of_experience || '',
+            education: parsedData.applicant_details?.education || ''
+          },
+          jobInfo: {
+            title: parsedData.job_details?.job_title || '',
+            company: parsedData.job_details?.company_name || '',
+            requirements: parsedData.job_details?.qualifications || [],
+            benefits: []
+          }
+        };
+        
+        setEmailData(prev => ({ ...prev, ...mappedData }));
+        setSuccess('Comprehensive data loaded from uploaded resume! All candidate fields have been auto-populated.');
+        
+        // Clear the session storage after using the data
+        sessionStorage.removeItem('uploadedResumeData');
+      } catch (error) {
+        console.error('Error parsing uploaded resume data:', error);
+      }
+    } else if (initialData) {
+      // Fallback to initialData prop
       setEmailData(prev => ({ ...prev, ...initialData }));
     }
   }, [initialData]);
@@ -82,11 +125,15 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
     }
   };
 
-  // Improve email using Groq
+  // Improve email using Groq (with streaming support)
   const handleImproveEmail = async () => {
     if (!improvementRequest.trim() || !emailData.content) {
       setError('Please provide improvement instructions and ensure email content exists');
       return;
+    }
+
+    if (useStreaming) {
+      return handleImproveEmailStream();
     }
 
     setIsImproving(true);
@@ -112,6 +159,57 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
     } catch (error) {
       setError('Failed to improve email: ' + error.message);
     } finally {
+      setIsImproving(false);
+    }
+  };
+
+  // Streaming email improvement
+  const handleImproveEmailStream = async () => {
+    setIsStreaming(true);
+    setIsImproving(true);
+    setError(null);
+    setStreamingContent('');
+    setStreamingStatus('Initializing...');
+
+    try {
+      await EmailService.improveEmailStream(
+        emailData.content,
+        improvementRequest,
+        {
+          candidate_info: emailData.candidateInfo,
+          job_info: emailData.jobInfo
+        },
+        {
+          onStatus: (status) => {
+            setStreamingStatus(status);
+          },
+          onChunk: (chunk, accumulated) => {
+            setStreamingContent(accumulated);
+            setStreamingStatus('Generating improved email...');
+          },
+          onComplete: (finalContent, data) => {
+            setEmailData(prev => ({
+              ...prev,
+              content: finalContent
+            }));
+            setStreamingContent('');
+            setStreamingStatus('');
+            setImprovementRequest('');
+            setSuccess('Email improved successfully with real-time streaming!');
+          },
+          onError: (error) => {
+            setError('Streaming failed: ' + error.message);
+            setStreamingContent('');
+            setStreamingStatus('');
+          }
+        }
+      );
+    } catch (error) {
+      setError('Failed to improve email: ' + error.message);
+      setStreamingContent('');
+      setStreamingStatus('');
+    } finally {
+      setIsStreaming(false);
       setIsImproving(false);
     }
   };
@@ -255,6 +353,32 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
             </div>
           </div>
 
+          {/* Quick Upload Link */}
+          <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-xl p-4 border border-blue-200 mb-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Need to upload a resume?</h3>
+                  <p className="text-slate-600 text-sm">Upload and analyze resumes with job descriptions for better email personalization</p>
+                </div>
+              </div>
+              <a
+                href="/upload-resume"
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl text-sm"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+                Upload Resume
+              </a>
+            </div>
+          </div>
+
           {/* Input Forms */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             {/* Candidate Information */}
@@ -266,57 +390,123 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                 Candidate Information
               </h3>
               <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-semibold text-slate-700 block mb-1">Name</label>
-                  <input
-                    type="text"
-                    value={emailData.candidateInfo.name}
-                    onChange={(e) => setEmailData(prev => ({
-                      ...prev,
-                      candidateInfo: { ...prev.candidateInfo, name: e.target.value }
-                    }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
-                    placeholder="Candidate's full name"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700 block mb-1">Name</label>
+                    <input
+                      type="text"
+                      value={emailData.candidateInfo.name}
+                      onChange={(e) => setEmailData(prev => ({
+                        ...prev,
+                        candidateInfo: { ...prev.candidateInfo, name: e.target.value }
+                      }))}
+                      className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
+                      placeholder="Candidate's full name"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700 block mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={emailData.to}
+                      onChange={(e) => setEmailData(prev => ({ ...prev, to: e.target.value }))}
+                      className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
+                      placeholder="candidate@company.com"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-700 block mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={emailData.to}
-                    onChange={(e) => setEmailData(prev => ({ ...prev, to: e.target.value }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
-                    placeholder="candidate@company.com"
-                  />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700 block mb-1">Phone Number</label>
+                    <input
+                      type="tel"
+                      value={emailData.candidateInfo.phone || ''}
+                      onChange={(e) => setEmailData(prev => ({
+                        ...prev,
+                        candidateInfo: { ...prev.candidateInfo, phone: e.target.value }
+                      }))}
+                      className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
+                      placeholder="+1 (555) 123-4567"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700 block mb-1">Location</label>
+                    <input
+                      type="text"
+                      value={emailData.candidateInfo.location || ''}
+                      onChange={(e) => setEmailData(prev => ({
+                        ...prev,
+                        candidateInfo: { ...prev.candidateInfo, location: e.target.value }
+                      }))}
+                      className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
+                      placeholder="City, State/Country"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-700 block mb-1">Current Company</label>
-                  <input
-                    type="text"
-                    value={emailData.candidateInfo.currentCompany}
-                    onChange={(e) => setEmailData(prev => ({
-                      ...prev,
-                      candidateInfo: { ...prev.candidateInfo, currentCompany: e.target.value }
-                    }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
-                    placeholder="Current company name"
-                  />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700 block mb-1">Current Company</label>
+                    <input
+                      type="text"
+                      value={emailData.candidateInfo.currentCompany}
+                      onChange={(e) => setEmailData(prev => ({
+                        ...prev,
+                        candidateInfo: { ...prev.candidateInfo, currentCompany: e.target.value }
+                      }))}
+                      className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
+                      placeholder="Current company name"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700 block mb-1">Current Position</label>
+                    <input
+                      type="text"
+                      value={emailData.candidateInfo.position}
+                      onChange={(e) => setEmailData(prev => ({
+                        ...prev,
+                        candidateInfo: { ...prev.candidateInfo, position: e.target.value }
+                      }))}
+                      className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
+                      placeholder="Current job title"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-700 block mb-1">Current Position</label>
-                  <input
-                    type="text"
-                    value={emailData.candidateInfo.position}
-                    onChange={(e) => setEmailData(prev => ({
-                      ...prev,
-                      candidateInfo: { ...prev.candidateInfo, position: e.target.value }
-                    }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
-                    placeholder="Current job title"
-                  />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700 block mb-1">Years of Experience</label>
+                    <input
+                      type="number"
+                      value={emailData.candidateInfo.experience || ''}
+                      onChange={(e) => setEmailData(prev => ({
+                        ...prev,
+                        candidateInfo: { ...prev.candidateInfo, experience: e.target.value }
+                      }))}
+                      className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
+                      placeholder="5"
+                      min="0"
+                      max="50"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700 block mb-1">Education</label>
+                    <input
+                      type="text"
+                      value={emailData.candidateInfo.education || ''}
+                      onChange={(e) => setEmailData(prev => ({
+                        ...prev,
+                        candidateInfo: { ...prev.candidateInfo, education: e.target.value }
+                      }))}
+                      className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
+                      placeholder="Bachelor's in Computer Science"
+                    />
+                  </div>
                 </div>
+
                 <div>
-                  <label className="text-sm font-semibold text-slate-700 block mb-1">Skills (comma-separated)</label>
+                  <label className="text-sm font-semibold text-slate-700 block mb-1">Skills & Technologies</label>
                   <input
                     type="text"
                     value={emailData.candidateInfo.skills.join(', ')}
@@ -328,8 +518,20 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                       }
                     }))}
                     className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
-                    placeholder="React, Node.js, Python, etc."
+                    placeholder="React, Node.js, Python, AWS, etc."
                   />
+                  {emailData.candidateInfo.skills.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {emailData.candidateInfo.skills.map((skill, index) => (
+                        <span
+                          key={index}
+                          className="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs font-medium"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -485,6 +687,53 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                   <p className="text-indigo-100 mt-2">Request specific improvements powered by Groq AI</p>
                 </div>
                 <div className="p-6">
+                  {/* Streaming Toggle */}
+                  <div className="mb-4 flex items-center gap-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={useStreaming}
+                        onChange={(e) => setUseStreaming(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        disabled={isImproving}
+                      />
+                      <span className="text-sm font-medium text-blue-800">Real-time streaming</span>
+                    </label>
+                    {useStreaming && (
+                      <div className="flex items-center gap-1 text-xs text-blue-600">
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+                        </svg>
+                        Live text generation
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Streaming Display */}
+                  {isStreaming && (
+                    <div className="mb-4 p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-400 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" style={{animationDelay: '0.2s'}}></div>
+                          <div className="w-2 h-2 bg-green-300 rounded-full animate-pulse" style={{animationDelay: '0.4s'}}></div>
+                        </div>
+                        <span className="text-sm font-medium text-green-800">Live Generation</span>
+                      </div>
+                      {streamingStatus && (
+                        <p className="text-sm text-green-700 mb-2">{streamingStatus}</p>
+                      )}
+                      {streamingContent && (
+                        <div className="relative">
+                          <div className="text-sm text-slate-800 bg-white rounded-lg p-3 border border-green-200 font-mono leading-relaxed whitespace-pre-wrap">
+                            {streamingContent}
+                            <span className="inline-block w-2 h-4 bg-green-500 animate-pulse ml-1"></span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="mb-4">
                     <textarea
                       ref={improvementInputRef}
@@ -523,14 +772,14 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                         <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
-                        Improving with Groq AI...
+                        {useStreaming ? 'Streaming with Groq AI...' : 'Improving with Groq AI...'}
                       </>
                     ) : (
                       <>
                         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
                         </svg>
-                        Improve Email
+                        {useStreaming ? 'Stream Improve Email' : 'Improve Email'}
                       </>
                     )}
                   </button>

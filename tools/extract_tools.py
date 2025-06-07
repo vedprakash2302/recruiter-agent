@@ -173,13 +173,13 @@ def get_job_content(job_url: str) -> Dict[str, Any]:
 
 def extract_applicant_details(resume_text: str) -> Dict[str, Any]:
     """
-    Extract structured information from resume text using Groq LLM.
+    Extract comprehensive structured information from resume text using Groq LLM.
     
     Args:
         resume_text: Raw text extracted from the resume PDF
         
     Returns:
-        Dictionary containing structured applicant information
+        Dictionary containing comprehensive structured applicant information
     """
     try:
         # Initialize Groq LLM
@@ -191,24 +191,60 @@ def extract_applicant_details(resume_text: str) -> Dict[str, Any]:
         # Define the output parser
         parser = JsonOutputParser()
         
-        # Define the prompt template
+        # Define the enhanced prompt template for comprehensive extraction
         prompt = ChatPromptTemplate.from_template(
             """
-            Extract the following information from the resume text below. 
+            Extract comprehensive information from the resume text below.
             Return ONLY a JSON object with the following structure:
             {{
                 "first_name": "string | null",
                 "last_name": "string | null",
                 "email": "string | null",
+                "phone_number": "string | null",
+                "location": "string | null",
+                "current_company": "string | null",
+                "current_position": "string | null",
+                "skills": ["string"],
+                "years_of_experience": "number | null",
+                "education": "string | null",
                 "extracted_resume_text": "string"
             }}
             
-            Rules:
-            - Only include information that is explicitly mentioned in the resume
-            - If a field cannot be determined, set it to null
-            - extracted_resume_text should be the first 500 characters of the cleaned resume text
-            - Email must be a valid email format if present
-            - Names should be properly capitalized
+            EXTRACTION RULES:
+            
+            1. **Personal Information:**
+               - first_name, last_name: Extract from the header/contact section
+               - email: Must be valid email format (contains @ and domain)
+               - phone_number: Any phone number format
+               - location: Current city/country/region
+            
+            2. **Current Employment (MOST RECENT JOB):**
+               - current_company: The most recent/current employer name
+               - current_position: The most recent/current job title
+               - Look for indicators like "Present", "Current", recent dates, or listed first
+            
+            3. **Skills Extraction:**
+               - Extract technical skills, programming languages, frameworks, tools
+               - Include both hard skills (React, Python, AWS) and relevant soft skills
+               - Look in skills sections, job descriptions, project descriptions
+               - Return as array of individual skill strings
+            
+            4. **Experience & Education:**
+               - years_of_experience: Calculate total years or extract if mentioned
+               - education: Highest degree or most relevant qualification
+            
+            5. **General Rules:**
+               - If information is not clearly stated, set to null or empty array
+               - extracted_resume_text: First 800 characters of cleaned text
+               - Prioritize recent/current information over historical data
+               - Use professional capitalization (Title Case for names, positions)
+            
+            6. **Skill Identification Priority:**
+               - Programming languages (JavaScript, Python, Java, etc.)
+               - Frameworks and libraries (React, Angular, Django, etc.)
+               - Tools and platforms (AWS, Docker, Git, etc.)
+               - Databases (MySQL, MongoDB, PostgreSQL, etc.)
+               - Methodologies (Agile, Scrum, DevOps, etc.)
             
             Resume Text:
             {resume_text}
@@ -221,21 +257,33 @@ def extract_applicant_details(resume_text: str) -> Dict[str, Any]:
         # Run the chain
         result = chain.invoke({"resume_text": resume_text})
         
-        # Clean and validate the result
+        # Clean and validate the enhanced result
         cleaned_result = {
             "first_name": result.get("first_name"),
             "last_name": result.get("last_name"),
             "email": result.get("email"),
-            "extracted_resume_text": resume_text[:500]  # First 500 chars of original text
+            "phone_number": result.get("phone_number"),
+            "location": result.get("location"),
+            "current_company": result.get("current_company"),
+            "current_position": result.get("current_position"),
+            "skills": result.get("skills", []),
+            "years_of_experience": result.get("years_of_experience"),
+            "education": result.get("education"),
+            "extracted_resume_text": resume_text[:800]  # First 800 chars of original text
         }
         
-        print("\nExtracted Applicant Details:")
-        print("-" * 50)
-        print(f"First Name: {cleaned_result['first_name']}")
-        print(f"Last Name: {cleaned_result['last_name']}")
-        print(f"Email: {cleaned_result['email']}")
-        print(f"Extracted Text Preview: {cleaned_result['extracted_resume_text'][:100]}...")
-        print("-" * 50 + "\n")
+        print("\n🎯 Enhanced Applicant Details Extracted:")
+        print("=" * 60)
+        print(f"👤 Name: {cleaned_result['first_name']} {cleaned_result['last_name']}")
+        print(f"📧 Email: {cleaned_result['email']}")
+        print(f"📱 Phone: {cleaned_result['phone_number']}")
+        print(f"📍 Location: {cleaned_result['location']}")
+        print(f"🏢 Current Company: {cleaned_result['current_company']}")
+        print(f"💼 Current Position: {cleaned_result['current_position']}")
+        print(f"🎓 Education: {cleaned_result['education']}")
+        print(f"⏱️  Experience: {cleaned_result['years_of_experience']} years")
+        print(f"🔧 Skills ({len(cleaned_result['skills'])}): {', '.join(cleaned_result['skills'][:5])}{'...' if len(cleaned_result['skills']) > 5 else ''}")
+        print("=" * 60 + "\n")
         
         # Save to global variable
         with global_lock:
@@ -250,7 +298,14 @@ def extract_applicant_details(resume_text: str) -> Dict[str, Any]:
             "first_name": None,
             "last_name": None,
             "email": None,
-            "extracted_resume_text": resume_text[:500] if resume_text else ""
+            "phone_number": None,
+            "location": None,
+            "current_company": None,
+            "current_position": None,
+            "skills": [],
+            "years_of_experience": None,
+            "education": None,
+            "extracted_resume_text": resume_text[:800] if resume_text else ""
         }
         
         # Save error state to global variable
