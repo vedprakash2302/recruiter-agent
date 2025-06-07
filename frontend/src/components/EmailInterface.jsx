@@ -275,7 +275,7 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                       ...prev,
                       candidateInfo: { ...prev.candidateInfo, name: e.target.value }
                     }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
                     placeholder="Candidate's full name"
                   />
                 </div>
@@ -285,7 +285,7 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                     type="email"
                     value={emailData.to}
                     onChange={(e) => setEmailData(prev => ({ ...prev, to: e.target.value }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
                     placeholder="candidate@company.com"
                   />
                 </div>
@@ -298,7 +298,7 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                       ...prev,
                       candidateInfo: { ...prev.candidateInfo, currentCompany: e.target.value }
                     }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
                     placeholder="Current company name"
                   />
                 </div>
@@ -311,7 +311,7 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                       ...prev,
                       candidateInfo: { ...prev.candidateInfo, position: e.target.value }
                     }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
                     placeholder="Current job title"
                   />
                 </div>
@@ -322,12 +322,12 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                     value={emailData.candidateInfo.skills.join(', ')}
                     onChange={(e) => setEmailData(prev => ({
                       ...prev,
-                      candidateInfo: { 
-                        ...prev.candidateInfo, 
+                      candidateInfo: {
+                        ...prev.candidateInfo,
                         skills: e.target.value.split(',').map(skill => skill.trim()).filter(Boolean)
                       }
                     }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
                     placeholder="React, Node.js, Python, etc."
                   />
                 </div>
@@ -352,7 +352,7 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                       ...prev,
                       jobInfo: { ...prev.jobInfo, title: e.target.value }
                     }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
                     placeholder="Senior Software Engineer"
                   />
                 </div>
@@ -365,7 +365,7 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                       ...prev,
                       jobInfo: { ...prev.jobInfo, company: e.target.value }
                     }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
                     placeholder="Company name"
                   />
                 </div>
@@ -376,12 +376,12 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                     value={emailData.jobInfo.requirements.join(', ')}
                     onChange={(e) => setEmailData(prev => ({
                       ...prev,
-                      jobInfo: { 
-                        ...prev.jobInfo, 
+                      jobInfo: {
+                        ...prev.jobInfo,
                         requirements: e.target.value.split(',').map(req => req.trim()).filter(Boolean)
                       }
                     }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
                     placeholder="5+ years experience, React expertise, etc."
                   />
                 </div>
@@ -392,12 +392,12 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                     value={emailData.jobInfo.benefits.join(', ')}
                     onChange={(e) => setEmailData(prev => ({
                       ...prev,
-                      jobInfo: { 
-                        ...prev.jobInfo, 
+                      jobInfo: {
+                        ...prev.jobInfo,
                         benefits: e.target.value.split(',').map(benefit => benefit.trim()).filter(Boolean)
                       }
                     }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
                     placeholder="Remote work, competitive salary, health benefits, etc."
                   />
                 </div>
@@ -454,7 +454,7 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                     type="text"
                     value={emailData.subject}
                     onChange={(e) => setEmailData(prev => ({ ...prev, subject: e.target.value }))}
-                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 placeholder:text-slate-500"
                     placeholder="Email subject line"
                     disabled={emailSent}
                   />
@@ -464,7 +464,7 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                   <textarea
                     value={emailData.content}
                     onChange={(e) => setEmailData(prev => ({ ...prev, content: e.target.value }))}
-                    className="w-full h-96 p-4 border border-slate-300 rounded-xl resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-slate-700 leading-relaxed"
+                    className="w-full h-96 p-4 border border-slate-300 rounded-xl resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-slate-900 placeholder:text-slate-500 leading-relaxed"
                     placeholder="Email content will appear here after generation..."
                     disabled={emailSent}
                   />
@@ -491,7 +491,7 @@ const EmailInterface = ({ initialData = null, mode = 'create' }) => {
                       value={improvementRequest}
                       onChange={(e) => setImprovementRequest(e.target.value)}
                       placeholder="Describe how you'd like to improve the email (e.g., 'make it shorter', 'add more details about benefits', 'make it more formal')..."
-                      className="w-full h-24 p-4 border border-slate-300 rounded-xl resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
+                      className="w-full h-24 p-4 border border-slate-300 rounded-xl resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 text-slate-900 placeholder:text-slate-500"
                       disabled={emailSent || isImproving}
                     />
                   </div>
