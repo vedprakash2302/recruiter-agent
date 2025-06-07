@@ -154,3 +154,4 @@ secrets.json
 
 frontend/node_modules/
 frontend/.next/
+.rooroo/
