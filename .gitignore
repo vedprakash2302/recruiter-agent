@@ -151,3 +151,6 @@ langchain.db
 *.key
 secrets.json 
 .rooroo/*
+
+frontend/node_modules/
+frontend/.next/
