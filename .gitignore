@@ -2,7 +2,6 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
 # C extensions
 *.so
 
@@ -149,4 +148,5 @@ langchain.db
 
 # API keys and secrets
 *.key
-secrets.json 
+secrets.json
+.rooroo/
