@@ -1,323 +1,190 @@
+"""
+AI Recruiter Email Workflow
+Enhanced version with modular design and FastAPI integration support
+"""
+
 import os
-from typing import Dict, Any, Literal
-from langgraph.graph import StateGraph, MessagesState, START, END
-from langgraph.types import interrupt, Command
+import uuid
+import logging
+from typing import TypedDict, Optional
+from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
-from langchain_groq import ChatGroq
+import uuid
 from dotenv import load_dotenv
-from rich.console import Console
-from rich.prompt import Prompt
-from tools.db_tools import get_database_schema, get_applicant_details, get_job_details
 
+# --- Import LangChain components for Groq ---
+from langchain_groq import ChatGroq
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+# --- Load API key from .env file ---
 load_dotenv()
-console = Console()
 
-MAX_RETRIES = 3
+# --- Initialize the Groq LLM ---
+model = ChatGroq(model="llama3-8b-8192")
 
-# Define the agent state
-class AgentState(MessagesState):
-    retry_count: int = 0
-    tool_to_execute: str = ""
-    tool_args: Dict[str, Any] = {}
-    user_choice: str = ""
-    
-# Tool implementations
-@tool
-def get_fact(fact: str) -> str:
-    """Get an interesting fact"""
-    return fact
+# --- Chain 1: For initial email drafting ---
+drafting_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", "You are a helpful assistant that drafts professional emails. Your tone should be clear and concise."),
+        ("human", "Please draft an email based on the following request: {request}")
+    ]
+)
+email_drafting_chain = drafting_prompt | model | StrOutputParser()
 
-@tool
-def get_quote(quote: str) -> str:
-    """Get a motivational quote"""
-    return quote
+# --- Chain 2: For enhancing an existing email draft ---
+enhancement_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", "You are an expert email editor. Your task is to take an existing email draft and improve it. Make it more professional, clear, and impactful, while keeping the original meaning intact."),
+        ("human", "Please enhance the following email draft:\n\n---\n\n{email_draft}")
+    ]
+)
+email_enhancement_chain = enhancement_prompt | model | StrOutputParser()
 
-@tool
-def get_joke(joke: str) -> str:
-    """Get a joke"""
-    return joke
 
-# Initialize the model
-model = ChatGroq(
-    model="llama3-8b-8192",
-    api_key=os.getenv("GROQ_API_KEY")
+# 1. Define the State
+class GraphState(TypedDict):
+    """
+    Represents the state of our graph.
+    """
+    user_request: str
+    email_draft: str
+    enhancement_feedback: str # User's decision to enhance or not
+    user_feedback: str      # User's final decision to send or not
+
+# --- Graph Nodes ---
+
+def draft_email_node(state: GraphState) -> GraphState:
+    """Uses the Groq API to draft an initial email."""
+    print("--- Step: Drafting Initial Email with Groq ---")
+    request = state["user_request"]
+    email_draft = email_drafting_chain.invoke({"request": request})
+    print("Initial draft created.")
+    return {"email_draft": email_draft}
+
+def enhance_email_node(state: GraphState) -> GraphState:
+    """Uses the Groq API to enhance the existing email draft."""
+    print("--- Step: Enhancing Email with Groq ---")
+    current_draft = state["email_draft"]
+    enhanced_draft = email_enhancement_chain.invoke({"email_draft": current_draft})
+    print("Email has been enhanced.")
+    return {"email_draft": enhanced_draft}
+
+def final_approval_gate(state: GraphState) -> GraphState:
+    """A placeholder node to act as a gate before the final user approval."""
+    print("--- Email is ready for FINAL approval ---")
+    return {}
+
+def send_email_node(state: GraphState) -> GraphState:
+    """A placeholder node that 'sends' the email."""
+    print("--- Step: Sending Email ---")
+    print(f"Email Sent!\n--- FINAL CONTENT ---\n{state['email_draft']}")
+    return {}
+
+def operation_cancelled_node(state: GraphState) -> GraphState:
+    """A node to handle the cancellation of the operation."""
+    print("--- Step: Operation Cancelled ---")
+    print("As per your request, the email will not be sent.")
+    return {}
+
+# --- Conditional Edge Logic ---
+
+def should_enhance_email(state: GraphState) -> str:
+    """Decides whether to enhance the email or proceed to final approval."""
+    print("--- Evaluating: Enhance email? ---")
+    if state.get("enhancement_feedback", "").strip().lower() == "yes":
+        return "enhance_email"
+    else:
+        return "final_approval_gate"
+
+def should_send_email(state: GraphState) -> str:
+    """Determines the final step based on user approval."""
+    print("--- Evaluating: Send email? ---")
+    if state.get("user_feedback", "").strip().lower() == "yes":
+        return "send_email"
+    else:
+        return "cancel_operation"
+
+# --- Build the Graph ---
+workflow = StateGraph(GraphState)
+workflow.add_node("draft_email", draft_email_node)
+workflow.add_node("enhance_email", enhance_email_node)
+workflow.add_node("final_approval_gate", final_approval_gate)
+workflow.add_node("send_email", send_email_node)
+workflow.add_node("cancel_operation", operation_cancelled_node)
+workflow.set_entry_point("draft_email")
+workflow.add_edge("enhance_email", "final_approval_gate")
+workflow.add_edge("send_email", END)
+workflow.add_edge("cancel_operation", END)
+workflow.add_conditional_edges(
+    "draft_email",
+    should_enhance_email,
+    {"enhance_email": "enhance_email", "final_approval_gate": "final_approval_gate"}
+)
+workflow.add_conditional_edges(
+    "final_approval_gate",
+    should_send_email,
+    {"send_email": "send_email", "cancel_operation": "cancel_operation"}
 )
 
-# Define the tools list for the model
-tools = [get_fact, get_quote, get_joke, get_database_schema, get_applicant_details, get_job_details]
-model_with_tools = model.bind_tools(tools)
+memory = MemorySaver()
+app = workflow.compile(
+    checkpointer=memory,
+    interrupt_after=["draft_email", "final_approval_gate"]
+)
 
-# Agent node - makes the decision about what to do
-def agent_node(state: AgentState) -> Dict[str, Any]:
-    """The main agent that decides what tool to use"""
-    if not state["messages"]:
-        # Initial system message
-        system_msg = HumanMessage(content="""
-        You are a helpful agent that can:
-        - Share a fun fact
-        - Share a motivational quote
-        - Share a joke
-        - Get database schema information
-        - Get detailed applicant information from the database
-        - Get detailed job information from the database
+# --- Running the Graph with the Two-Stage Human-in-the-Loop ---
 
-        When you get a response from a tool:
-        1. For facts, start with "Here's an interesting fact: " followed by the tool's output
-        2. For quotes, start with "Here's a motivational quote: " followed by the tool's output
-        3. For jokes, start with "Here's a joke: " followed by the tool's output
-        4. For database schema, present the information clearly
-        5. For applicant details, present the information in a readable format
-        6. For job details, present the information in a readable format
+config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+initial_user_prompt = "Write a brief project update for Project Phoenix, mention we are on track for Q3 goals and the new dashboard is live."
 
-        Ask the user before executing any tool, and retry only if they say so. Stop after 3 retries.
-        """)
-        state["messages"].append(system_msg)
-    
-    # Get the latest user message
-    latest_message = state["messages"][-1] if state["messages"] else None
-    
-    if latest_message and isinstance(latest_message, HumanMessage):
-        # Agent decides what to do based on the user's request
-        response = model_with_tools.invoke(state["messages"])
-        return {"messages": [response]}
-    
-    return {"messages": []}
+print(f"\n--- Starting Email Generation Process for: '{initial_user_prompt}' ---\n")
 
-# Human approval node - implements the pre-hook functionality
-def human_approval_node(state: AgentState) -> Command[Literal["execute_tool", "retry_or_stop"]]:
-    """Human approval node that mimics the pre-hook functionality"""
-    
-    # Get the last AI message with tool calls
-    last_message = state["messages"][-1]
-    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
-        return Command(goto="execute_tool")
-    
-    tool_call = last_message.tool_calls[0]
-    
-    # Display tool information like the original pre-hook
-    console.print(f"\n🔍 [bold]Preparing to run:[/bold] [cyan]{tool_call['name']}[/cyan]")
-    console.print(f"📦 [bold]Arguments:[/bold] {tool_call['args']}")
-    
-    # Ask for user approval
-    choice = interrupt({
-        "question": "🤔 Do you want to continue?",
-        "tool_name": tool_call['name'],
-        "tool_args": tool_call['args'],
-        "options": ["y", "n", "retry"],
-        "default": "y"
-    })
-    
-    if choice == "n":
-        console.print("❌ [red]Operation cancelled by user.[/red]")
-        return Command(
-            goto="retry_or_stop",
-            update={
-                "user_choice": "cancelled",
-                "messages": [AIMessage(content="I don't have any tool calls to make.")]
-            }
-        )
-    
-    if choice == "retry":
-        current_retry = state.get("retry_count", 0) + 1
-        if current_retry >= MAX_RETRIES:
-            console.print("❌ [red]Maximum retries reached.[/red]")
-            return Command(
-                goto="retry_or_stop",
-                update={
-                    "retry_count": current_retry,
-                    "user_choice": "max_retries",
-                    "messages": [AIMessage(content="Stopped after several retries.")]
-                }
-            )
-        
-        console.print(f"🔄 [yellow]Retrying... (Attempt {current_retry} of {MAX_RETRIES})[/yellow]")
-        return Command(
-            goto="retry_or_stop",
-            update={
-                "retry_count": current_retry,
-                "user_choice": "retry",
-                "messages": [AIMessage(content="Let me try again!")]
-            }
-        )
-    
-    # Reset retry counter when user chooses to continue
-    return Command(
-        goto="execute_tool",
-        update={
-            "retry_count": 0,
-            "user_choice": "continue"
-        }
-    )
+# --- STAGE 1: DRAFT and ask for ENHANCEMENT ---
+app.invoke({"user_request": initial_user_prompt}, config=config)
+current_state = app.get_state(config)
+initial_draft = current_state.values.get('email_draft', '')
 
-# Tool execution node
-def execute_tool_node(state: AgentState) -> Dict[str, Any]:
-    """Execute the approved tool"""
-    
-    last_message = state["messages"][-1]
-    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
-        return {"messages": []}
-    
-    tool_call = last_message.tool_calls[0]
-    tool_name = tool_call['name']
-    tool_args = tool_call['args']
-    
-    # Execute the appropriate tool
-    if tool_name == "get_fact":
-        result = get_fact.invoke(tool_args)
-        response = f"Here's an interesting fact: {result}"
-    elif tool_name == "get_quote":
-        result = get_quote.invoke(tool_args)
-        response = f"Here's a motivational quote: {result}"
-    elif tool_name == "get_joke":
-        result = get_joke.invoke(tool_args)
-        response = f"Here's a joke: {result}"
-    elif tool_name == "get_database_schema":
-        result = get_database_schema.invoke(tool_args)
-        response = f"Database schema:\n{result}"
-    elif tool_name == "get_applicant_details":
-        result = get_applicant_details.invoke(tool_args)
-        response = f"Applicant information:\n{result}"
-    elif tool_name == "get_job_details":
-        result = get_job_details.invoke(tool_args)
-        response = f"Job information:\n{result}"
-    else:
-        response = "I don't have any tools to use."
-    
-    return {"messages": [AIMessage(content=response)]}
+print("\n\n---------------------------------")
+print("--- STAGE 1: ENHANCEMENT REVIEW ---")
+print("---------------------------------\n")
+print("INITIAL DRAFT:\n")
+print(initial_draft)
+print("\n---------------------------------")
 
-# Retry or stop node
-def retry_or_stop_node(state: AgentState) -> Dict[str, Any]:
-    """Handle retry logic or stopping"""
-    user_choice = state.get("user_choice", "")
-    
-    if user_choice == "retry":
-        # Go back to agent to try again
-        return {"messages": []}
-    else:
-        # Stop execution
-        return {"messages": []}
+while True:
+    enhancement_input = input("Do you want to enhance this draft? (yes/no): ").strip().lower()
+    if enhancement_input in ['yes', 'no']:
+        break
+    print("Please answer with 'yes' or 'no'.")
 
-# Routing function
-def should_continue(state: AgentState):
-    """Determine the next step in the workflow"""
-    
-    if not state["messages"]:
-        return END
-    
-    last_message = state["messages"][-1]
-    
-    # If it's an AI message with tool calls, go to human approval
-    if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        return "human_approval"
-    
-    # If we just executed a tool or cancelled, we're done
-    user_choice = state.get("user_choice", "")
-    if user_choice in ["cancelled", "max_retries"]:
-        return END
-    
-    # Check if we should continue or end
-    if isinstance(last_message, AIMessage) and not last_message.tool_calls:
-        return END
-    
-    return "execute_tool"
+# ### FIXED: Explicitly update state, then invoke with None to resume ###
+# This ensures the graph continues from its paused state correctly.
+print("\n...Resuming graph...")
+app.update_state(config, {"enhancement_feedback": enhancement_input})
+app.invoke(None, config=config)
 
-# Build the graph
-def create_agent_graph():
-    """Create the LangGraph agent with human-in-the-loop"""
-    
-    # Create the state graph
-    workflow = StateGraph(AgentState)
-    
-    # Add nodes
-    workflow.add_node("agent", agent_node)
-    workflow.add_node("human_approval", human_approval_node)
-    workflow.add_node("execute_tool", execute_tool_node)
-    workflow.add_node("retry_or_stop", retry_or_stop_node)
-    
-    # Add edges
-    workflow.add_edge(START, "agent")
-    workflow.add_conditional_edges("agent", should_continue)
-    workflow.add_edge("execute_tool", END)
-    workflow.add_edge("retry_or_stop", "agent")
-    
-    # Add memory for checkpointing (required for interrupt)
-    memory = MemorySaver()
-    
-    # Compile the graph
-    return workflow.compile(checkpointer=memory)
 
-# Main execution function
-def run_agent(user_input: str = "Share something fun!"):
-    """Run the agent with human-in-the-loop functionality"""
-    
-    # Create the agent graph
-    agent_graph = create_agent_graph()
-    
-    # Configuration with thread ID
-    config = {"configurable": {"thread_id": "human_in_loop_demo"}}
-    
-    # Initial state
-    initial_state = {
-        "messages": [HumanMessage(content=user_input)],
-        "retry_count": 0,
-        "user_choice": "",
-        "tool_to_execute": "",
-        "tool_args": {}
-    }
-    
-    console.print("[bold green]🚀 Starting Human-in-the-Loop Agent[/bold green]")
-    console.print(f"[bold]User input:[/bold] {user_input}")
-    
-    try:
-        # Run the graph until first interrupt
-        for event in agent_graph.stream(initial_state, config, stream_mode="updates"):
-            # Check for interrupt
-            if "__interrupt__" in event:
-                interrupt_data = event["__interrupt__"][0].value
-                
-                # Use Rich to prompt for user input
-                console.print(f"\n{interrupt_data['question']}")
-                console.print(f"Options: {interrupt_data['options']}")
-                
-                choice = Prompt.ask(
-                    "Your choice",
-                    choices=interrupt_data['options'],
-                    default=interrupt_data['default']
-                ).strip().lower()
-                
-                # Resume the graph with user's choice
-                for resume_event in agent_graph.stream(
-                    Command(resume=choice),
-                    config,
-                    stream_mode="updates"
-                ):
-                    # Print any new messages
-                    if "execute_tool" in resume_event and "messages" in resume_event["execute_tool"]:
-                        for msg in resume_event["execute_tool"]["messages"]:
-                            if isinstance(msg, AIMessage):
-                                console.print(f"\n[bold green]🤖 Agent:[/bold green] {msg.content}")
-                    
-                    elif "retry_or_stop" in resume_event:
-                        if resume_event["retry_or_stop"].get("user_choice") == "retry":
-                            console.print("\n[yellow]🔄 Retrying...[/yellow]")
-                        elif resume_event["retry_or_stop"].get("user_choice") in ["cancelled", "max_retries"]:
-                            console.print("\n[red]❌ Stopping execution.[/red]")
-                            return
-            
-            # Print agent responses
-            if "agent" in event and "messages" in event["agent"]:
-                for msg in event["agent"]["messages"]:
-                    if isinstance(msg, AIMessage) and msg.tool_calls:
-                        console.print(f"\n[bold blue]🤖 Agent wants to use tool:[/bold blue] {msg.tool_calls[0]['name']}")
-    
-    except KeyboardInterrupt:
-        console.print("\n[red]❌ Interrupted by user[/red]")
-    except Exception as e:
-        console.print(f"\n[red]❌ Error: {e}[/red]")
+# --- STAGE 2: Get FINAL DRAFT and ask for APPROVAL to SEND ---
+final_state = app.get_state(config)
+final_draft = final_state.values.get('email_draft', '')
 
-if __name__ == "__main__":
-    # Test the agent
-    run_agent("Share something fun!")
+print("\n\n-----------------------------")
+print("--- STAGE 2: FINAL APPROVAL ---")
+print("-----------------------------\n")
+print("FINAL EMAIL DRAFT:\n")
+print(final_draft)
+print("\n-----------------------------")
+
+while True:
+    send_input = input("Do you approve sending this email? (yes/no): ").strip().lower()
+    if send_input in ['yes', 'no']:
+        break
+    print("Please answer with 'yes' or 'no'.")
+
+# ### FIXED: Apply the same robust pattern for the final step ###
+print("\n...Resuming graph for final action...")
+app.update_state(config, {"user_feedback": send_input})
+app.invoke(None, config=config)
+
+print("\n--- Graph execution finished. ---")
