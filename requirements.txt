@@ -1,0 +1,6 @@
+langgraph>=0.2.52
+langchain-core>=0.3.29
+langchain-openai>=0.2.12
+python-dotenv>=1.0.1
+rich>=13.9.4
+typing-extensions>=4.0.0 
