@@ -149,5 +149,6 @@ langchain.db
 
 # API keys and secrets
 *.key
-secrets.json
-.rooroo/*
+secrets.json 
+credentials.json
+token.pickle

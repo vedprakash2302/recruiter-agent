@@ -9,7 +9,14 @@ import logging
 from typing import TypedDict, Optional
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from dotenv import load_dotenv
+from rich.console import Console
+from rich.prompt import Prompt
+from tools.db_tools import get_database_schema, get_applicant_details, get_job_details
 
 # Import LangChain components for Groq
 from langchain_groq import ChatGroq
@@ -19,32 +26,77 @@ from langchain_core.output_parsers import StrOutputParser
 # Load environment variables
 load_dotenv()
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+MAX_RETRIES = 3
+
+# Define the agent state
+class AgentState(MessagesState):
+    retry_count: int = 0
+    tool_to_execute: str = ""
+    tool_args: Dict[str, Any] = {}
+    user_choice: str = ""
+    
+# Tool implementations
+@tool
+def get_fact(fact: str) -> str:
+    """Get an interesting fact"""
+    return fact
+
+@tool
+def get_quote(quote: str) -> str:
+    """Get a motivational quote"""
+    return quote
+
+@tool
+def get_joke(joke: str) -> str:
+    """Get a joke"""
+    return joke
+
+# Initialize the model
+model = ChatGroq(
+    model="llama3-8b-8192",
+    api_key=os.getenv("GROQ_API_KEY")
 )
 logger = logging.getLogger(__name__)
 
+# Define the tools list for the model
+tools = [get_fact, get_quote, get_joke, get_database_schema, get_applicant_details, get_job_details]
+model_with_tools = model.bind_tools(tools)
 
-# Define the State
-class GraphState(TypedDict):
-    """
-    Represents the state of our email workflow graph.
+# Agent node - makes the decision about what to do
+def agent_node(state: AgentState) -> Dict[str, Any]:
+    """The main agent that decides what tool to use"""
+    if not state["messages"]:
+        # Initial system message
+        system_msg = HumanMessage(content="""
+        You are a helpful agent that can:
+        - Share a fun fact
+        - Share a motivational quote
+        - Share a joke
+        - Get database schema information
+        - Get detailed applicant information from the database
+        - Get detailed job information from the database
 
-    Attributes:
-        user_request: The initial instruction from the user about the email.
-        email_draft: The generated email content to be approved.
-        user_feedback: The 'yes' or 'no' from the user for approval.
-        session_id: Unique identifier for the workflow session.
-        metadata: Additional metadata about the email generation.
-    """
-    user_request: str
-    email_draft: str
-    user_feedback: str
-    session_id: str
-    metadata: Optional[dict]
+        When you get a response from a tool:
+        1. For facts, start with "Here's an interesting fact: " followed by the tool's output
+        2. For quotes, start with "Here's a motivational quote: " followed by the tool's output
+        3. For jokes, start with "Here's a joke: " followed by the tool's output
+        4. For database schema, present the information clearly
+        5. For applicant details, present the information in a readable format
+        6. For job details, present the information in a readable format
 
+        Ask the user before executing any tool, and retry only if they say so. Stop after 3 retries.
+        """)
+        state["messages"].append(system_msg)
+    
+    # Get the latest user message
+    latest_message = state["messages"][-1] if state["messages"] else None
+    
+    if latest_message and isinstance(latest_message, HumanMessage):
+        # Agent decides what to do based on the user's request
+        response = model_with_tools.invoke(state["messages"])
+        return {"messages": [response]}
+    
+    return {"messages": []}
 
 class EmailWorkflowManager:
     """
@@ -242,12 +294,70 @@ Always write in a warm, human tone while maintaining professionalism."""),
             "status": "completed"
         }
 
+# Tool execution node
+def execute_tool_node(state: AgentState) -> Dict[str, Any]:
+    """Execute the approved tool"""
+    
+    last_message = state["messages"][-1]
+    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+        return {"messages": []}
+    
+    tool_call = last_message.tool_calls[0]
+    tool_name = tool_call['name']
+    tool_args = tool_call['args']
+    
+    # Execute the appropriate tool
+    if tool_name == "get_fact":
+        result = get_fact.invoke(tool_args)
+        response = f"Here's an interesting fact: {result}"
+    elif tool_name == "get_quote":
+        result = get_quote.invoke(tool_args)
+        response = f"Here's a motivational quote: {result}"
+    elif tool_name == "get_joke":
+        result = get_joke.invoke(tool_args)
+        response = f"Here's a joke: {result}"
+    elif tool_name == "get_database_schema":
+        result = get_database_schema.invoke(tool_args)
+        response = f"Database schema:\n{result}"
+    elif tool_name == "get_applicant_details":
+        result = get_applicant_details.invoke(tool_args)
+        response = f"Applicant information:\n{result}"
+    elif tool_name == "get_job_details":
+        result = get_job_details.invoke(tool_args)
+        response = f"Job information:\n{result}"
+    else:
+        response = "I don't have any tools to use."
+    
+    return {"messages": [AIMessage(content=response)]}
 
 # Utility functions for integration with FastAPI service
 def create_email_workflow_manager() -> EmailWorkflowManager:
     """Create and return a configured EmailWorkflowManager instance."""
     return EmailWorkflowManager()
 
+# Routing function
+def should_continue(state: AgentState):
+    """Determine the next step in the workflow"""
+    
+    if not state["messages"]:
+        return END
+    
+    last_message = state["messages"][-1]
+    
+    # If it's an AI message with tool calls, go to human approval
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        return "human_approval"
+    
+    # If we just executed a tool or cancelled, we're done
+    user_choice = state.get("user_choice", "")
+    if user_choice in ["cancelled", "max_retries"]:
+        return END
+    
+    # Check if we should continue or end
+    if isinstance(last_message, AIMessage) and not last_message.tool_calls:
+        return END
+    
+    return "execute_tool"
 
 def demo_workflow():
     """
