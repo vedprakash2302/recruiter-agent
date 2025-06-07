@@ -7,8 +7,13 @@ from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+import googleapiclient.discovery_cache.base
 import pickle
 from typing import Dict, List, Optional, Any, Tuple
+
+# Disable discovery cache warnings
+import logging
+logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 
 # If modifying these scopes, delete the token.pickle file.
 SCOPES = ['https://www.googleapis.com/auth/gmail.send',
@@ -31,7 +36,7 @@ class GmailService:
             with open(TOKEN_FILE, 'rb') as token:
                 self.creds = pickle.load(token)
                 if self.creds and self.creds.valid:
-                    self.service = build('gmail', 'v1', credentials=self.creds)
+                    self.service = build('gmail', 'v1', credentials=self.creds, cache_discovery=False)
     
     def is_authenticated(self) -> bool:
         """Check if the user is authenticated."""
@@ -40,7 +45,7 @@ class GmailService:
                 try:
                     self.creds.refresh(Request())
                     self._save_credentials()
-                    self.service = build('gmail', 'v1', credentials=self.creds)
+                    self.service = build('gmail', 'v1', credentials=self.creds, cache_discovery=False)
                     return True
                 except Exception:
                     return False
@@ -62,7 +67,7 @@ class GmailService:
         flow.fetch_token(code=code)
         self.creds = flow.credentials
         self._save_credentials()
-        self.service = build('gmail', 'v1', credentials=self.creds)
+        self.service = build('gmail', 'v1', credentials=self.creds, cache_discovery=False)
     
     def _get_flow(self):
         """Create and return a Flow instance."""
