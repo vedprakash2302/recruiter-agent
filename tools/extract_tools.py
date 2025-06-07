@@ -6,11 +6,12 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
-# Import database tools
+# Import database tools and global variables
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 from tools.db_tools import save_applicant
+from globalc import JOB_DETAILS, CV_DETAILS, global_lock
 
 
 def get_resume_content(pdf_path):
@@ -108,11 +109,16 @@ def extract_job_details(job_text: str) -> Dict[str, Any]:
         print(f"Skills ({len(cleaned_result['skills_required'])}): {', '.join(cleaned_result['skills_required'][:3])}...")
         print("-" * 50 + "\n")
         
+        # Save to global variable
+        with global_lock:
+            JOB_DETAILS.clear()
+            JOB_DETAILS.update(cleaned_result)
+            
         return cleaned_result
         
     except Exception as e:
         print(f"❌ Error extracting job details: {str(e)}")
-        return {
+        error_result = {
             "job_title": None,
             "company_name": None,
             "location": None,
@@ -124,6 +130,13 @@ def extract_job_details(job_text: str) -> Dict[str, Any]:
             "qualifications": [],
             "extracted_job_description": job_text[:1000] if job_text else ""
         }
+        
+        # Save error state to global variable
+        with global_lock:
+            JOB_DETAILS.clear()
+            JOB_DETAILS.update(error_result)
+            
+        return error_result
 
 def get_job_content(job_url: str) -> Dict[str, Any]:
     """
@@ -149,15 +162,13 @@ def get_job_content(job_url: str) -> Dict[str, Any]:
         job_text = "".join(doc.page_content for doc in docs)
         print('Job description loaded successfully')
         
-        # Extract structured information
+        # Extract job details
         job_details = extract_job_details(job_text)
-        job_details["job_url"] = job_url
-        
         return job_details
         
     except Exception as e:
-        error_msg = f"Error loading job URL: {str(e)}"
-        print(f"❌ {error_msg}")
+        error_msg = f"❌ Error loading job description: {str(e)}"
+        print(error_msg)
         return {"error": error_msg, "job_url": job_url}
 
 def extract_applicant_details(resume_text: str) -> Dict[str, Any]:
@@ -226,18 +237,30 @@ def extract_applicant_details(resume_text: str) -> Dict[str, Any]:
         print(f"Extracted Text Preview: {cleaned_result['extracted_resume_text'][:100]}...")
         print("-" * 50 + "\n")
         
+        # Save to global variable
+        with global_lock:
+            CV_DETAILS.clear()
+            CV_DETAILS.update(cleaned_result)
+            
         return cleaned_result
         
     except Exception as e:
         print(f"❌ Error extracting applicant details: {str(e)}")
-        return {
+        error_result = {
             "first_name": None,
             "last_name": None,
             "email": None,
             "extracted_resume_text": resume_text[:500] if resume_text else ""
         }
+        
+        # Save error state to global variable
+        with global_lock:
+            CV_DETAILS.clear()
+            CV_DETAILS.update(error_result)
+            
+        return error_result
 
-def process_resume_pdf(pdf_path: str, job_id: int, created_by: int) -> Dict[str, Any]:
+def process_resume_pdf(pdf_path: str) -> Dict[str, Any]:
     """
     Process a resume PDF, extract structured information, and save to database.
     
@@ -250,55 +273,24 @@ def process_resume_pdf(pdf_path: str, job_id: int, created_by: int) -> Dict[str,
         Dictionary containing saved applicant information including database ID
     """
     try:
-        print(f"\nProcessing resume: {pdf_path}")
-        
         # Extract text from PDF
-        resume_data = get_resume_content(pdf_path)
-        if not resume_data:
-            error_msg = "❌ No content extracted from resume"
-            print(error_msg)
-            return {"error": error_msg}
+        docs = get_resume_content(pdf_path)
+        if not docs:
+            return {"error": "Failed to extract text from PDF"}
             
         # Combine all pages into a single text
-        resume_text = "\n".join([doc.page_content for doc in resume_data])
+        resume_text = "\n\n".join(doc.page_content for doc in docs)
         
         # Extract structured information
-        applicant_info = extract_applicant_details(resume_text)
+        extracted_data = extract_applicant_details(resume_text)                    
         
-        if not applicant_info:
-            error_msg = "❌ Failed to extract applicant information"
-            print(error_msg)
-            return {"error": error_msg}
-        
-        # Get the base filename for resume_filename
-        resume_filename = os.path.basename(pdf_path)
-        
-        # Prepare data for saving to database
-        save_data = {
-            "job_id": job_id,
-            "created_by": created_by,
-            "resume_filename": resume_filename,
-            "first_name": applicant_info.get("first_name"),
-            "last_name": applicant_info.get("last_name"),
-            "email": applicant_info.get("email"),
-            "extracted_resume_text": applicant_info.get("extracted_resume_text", "")[:1000],  # Truncate if too long
+        return {
+            "success": True           
         }
         
-        print("\nSaving applicant to database...")
-        save_result = save_applicant(**save_data)
-        print(f"Save result: {save_result}")
-        
-        # Add database save result to the return value
-        applicant_info["save_result"] = save_result
-        
-        # Try to extract the applicant ID from the save result
-        if "Successfully created applicant with ID:" in save_result:
-            applicant_id = save_result.split(":")[-1].strip()
-            applicant_info["applicant_id"] = int(applicant_id)
-        
-        return applicant_info
-        
     except Exception as e:
-        error_msg = f"❌ Error processing resume: {str(e)}"
-        print(error_msg)
-        return {"error": error_msg}
+        print(f"❌ Error processing resume: {str(e)}")
+        return {
+            "error": f"Failed to process resume: {str(e)}",
+            "success": False
+        }
