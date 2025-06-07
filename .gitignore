@@ -150,3 +150,5 @@ langchain.db
 # API keys and secrets
 *.key
 secrets.json 
+credentials.json
+token.pickle
